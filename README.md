@@ -59,12 +59,12 @@ $ composer require duckdev/wp-cache-helper
 
 WP Cache Remember provides the following functions for WordPress:
 
-* [`$cache->remember()`](#$cache->remember())
-* [`$cache->forget()`](#$cache->forget())
-* [`$cache->persist()`](#$cache->persist())
-* [`$cache->cease()`](#$cache->cease())
-* [`$cache->flush_group()`](#$cache->flush_group())
-* [`$cache->flush()`](#$cache->flush())
+* [`$cache->remember()`](#cache-remember)
+* [`$cache->forget()`](#cache-forget)
+* [`$cache->persist()`](#cache-persist)
+* [`$cache->cease()`](#cache-cease)
+* [`$cache->flush_group()`](#cache-flush_group)
+* [`$cache->flush()`](#cache-flush)
 
 Each function checks the response of the callback for a `WP_Error` object, ensuring you're not caching temporary errors for long periods of time. PHP Exceptions will also not be cached.
 
