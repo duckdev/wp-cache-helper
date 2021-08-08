@@ -36,7 +36,7 @@ class Cache {
 	 * @var string $prefix
 	 * @since 1.0.0
 	 */
-	protected $prefix = 'wpmudev_cache';
+	protected $prefix = 'duckdev_cache';
 
 	/**
 	 * Cache default group name.
