@@ -1,0 +1,31 @@
+{
+  "name": "duckdev/wp-cache-helper",
+  "description": "Helper class for the WordPress object cache and transients with group flush feature.",
+  "license": "GPL-2.0-or-later",
+  "type": "library",
+  "authors": [
+    {
+      "name": "Joel James",
+      "email": "me@joelsays.com",
+      "homepage": "https://duckdev.com"
+    }
+  ],
+  "keywords": [
+    "wordpress",
+    "cache",
+    "object-cache",
+    "transients"
+  ],
+  "support": {
+    "issues": "https://github.com/duckdev/wp-cache-helper/issues/"
+  },
+  "require": {
+    "php": ">=5.6"
+  },
+  "autoload": {
+    "psr-4": {
+      "DuckDev\\Cache\\": "src"
+    }
+  },
+  "minimum-stability": "dev"
+}
