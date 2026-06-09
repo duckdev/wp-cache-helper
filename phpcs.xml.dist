@@ -1,0 +1,67 @@
+<?xml version="1.0"?>
+<ruleset name="DuckDev WP Cache Helper">
+	<description>WordPress coding standards adapted for a PSR-4 library.</description>
+
+	<file>src</file>
+	<file>tests</file>
+
+	<arg name="basepath" value="."/>
+	<arg name="colors"/>
+	<arg name="extensions" value="php"/>
+	<arg value="sp"/>
+	<arg name="parallel" value="8"/>
+
+	<exclude-pattern>*/vendor/*</exclude-pattern>
+	<exclude-pattern>*/node_modules/*</exclude-pattern>
+	<exclude-pattern>tests/Stubs/*</exclude-pattern>
+
+	<config name="minimum_supported_wp_version" value="6.0"/>
+	<config name="testVersion" value="7.4-"/>
+
+	<!-- Apply the full WordPress standard. -->
+	<rule ref="WordPress">
+		<!-- PSR-4 file/folder layout — class files are PascalCase, not class-foo.php. -->
+		<exclude name="WordPress.Files.FileName"/>
+
+		<!-- PSR-4 class names — no class-foo.php prefix requirement. -->
+		<exclude name="WordPress.NamingConventions.ValidVariableName"/>
+
+		<!-- Library has no text domain; host plugins translate. -->
+		<exclude name="WordPress.WP.I18n.TextDomainMismatch"/>
+		<exclude name="WordPress.WP.I18n.MissingArgDomain"/>
+	</rule>
+
+	<!-- {@inheritDoc} is the chosen pattern for interface methods; do not double-document. -->
+	<rule ref="Squiz.Commenting.FunctionComment.MissingParamTag">
+		<exclude-pattern>src/Storage/ObjectCache.php</exclude-pattern>
+		<exclude-pattern>src/Storage/TransientCache.php</exclude-pattern>
+	</rule>
+
+	<!-- $default is part of the 1.x public API (forget/cease); renaming would break consumers. -->
+	<rule ref="Universal.NamingConventions.NoReservedKeywordParameterNames.defaultFound">
+		<exclude-pattern>src/Cache.php</exclude-pattern>
+	</rule>
+
+	<!-- PHP compatibility (7.4+). -->
+	<rule ref="PHPCompatibilityWP"/>
+
+	<!-- Tests can use looser conventions. -->
+	<rule ref="WordPress.NamingConventions.ValidFunctionName">
+		<exclude-pattern>tests/*</exclude-pattern>
+	</rule>
+	<rule ref="WordPress.PHP.DevelopmentFunctions">
+		<exclude-pattern>tests/*</exclude-pattern>
+	</rule>
+	<rule ref="WordPress.WP.AlternativeFunctions">
+		<exclude-pattern>tests/*</exclude-pattern>
+	</rule>
+	<rule ref="Squiz.Commenting.FunctionComment">
+		<exclude-pattern>tests/*</exclude-pattern>
+	</rule>
+	<rule ref="Squiz.Commenting.FileComment">
+		<exclude-pattern>tests/*</exclude-pattern>
+	</rule>
+	<rule ref="Squiz.Commenting.ClassComment">
+		<exclude-pattern>tests/*</exclude-pattern>
+	</rule>
+</ruleset>

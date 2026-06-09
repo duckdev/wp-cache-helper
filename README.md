@@ -6,185 +6,176 @@
 
 # WP Cache Helper
 
-WP Cache Helper is a simple WordPress library class to introduce convenient new caching functions.
+WP Cache Helper is a small WordPress library that wraps the object cache and transient APIs with a callback-style
+`remember()` helper, group-flush support for the object cache (which [core does not provide](https://core.trac.wordpress.org/ticket/4476)),
+and per-prefix scoping so multiple consumers on the same site never collide.
 
-Built to support group cache flush for WordPress' object cache, which is [not supported by core yet](https://core.trac.wordpress.org/ticket/4476).
+Inspired by [WP Cache Remember](https://github.com/stevegrunwell/wp-cache-remember).
 
-* Inspired from [WP Cache Remember](https://github.com/stevegrunwell/wp-cache-remember).
+## Requirements
 
-This helper can simplify something like this:
-
-```php
-function do_something() {
-    $cache_key = 'some-cache-key';
-    $cached    = wp_cache_get( $cache_key );
-
-    // Return the cached value.
-    if ( $cached ) {
-        return $cached;
-    }
-
-    // Do all the work to calculate the value.
-    $value = a_whole_lotta_processing();
-
-    // Cache the value.
-    wp_cache_set( $cache_key, $value );
-
-    return $value;
-}
-```
-
-That pattern works well, but there's a lot of repeated code. This package draws inspiration from [Laravel's `Cache::remember()` method](https://laravel.com/docs/5.6/cache#cache-usage); using `Cache::remember()`, the same code from above becomes:
-
-```php
-// Use this as a global variable or something.
-$cache = new \DuckDev\Cache\Cache();
-
-function do_something() {
-    return $cache->remember( 'some-cache-key', function () {
-        return a_whole_lotta_processing();
-    } );
-}
-```
+* PHP 7.4 or higher
+* WordPress 5.0+
+* Composer
 
 ## Installation
 
-The recommended way to install this library in your project is [via Composer](https://getcomposer.org/):
-
-```sh
-$ composer require duckdev/wp-cache-helper
+```console
+composer require duckdev/wp-cache-helper
 ```
+
+The library autoloads under the `DuckDev\Cache\` namespace via PSR-4.
+
+## Architecture
+
+The library is organised as a tiny container wired up by the entry class `DuckDev\Cache\Cache`. The folder layout
+mirrors the namespace:
+
+```
+src/
+├── Cache.php                     # Container + entry point
+├── Contracts/
+│   ├── ObjectCacheInterface.php
+│   └── TransientCacheInterface.php
+├── Storage/
+│   ├── ObjectCache.php           # wp_cache_* wrapper + version-based group flush
+│   └── TransientCache.php        # (site_)transient wrapper
+├── Support/
+│   └── KeyPrefixer.php           # Shared key + group prefixing
+└── Exceptions/
+    └── CacheException.php
+```
+
+Services receive their collaborators by constructor injection so they can be unit-tested without WordPress in the loop.
+Construction has no side effects.
 
 ## Usage
 
-WP Cache Remember provides the following functions for WordPress:
+### Initialisation
 
-* [`$cache->remember()`](#cache-remember)
-* [`$cache->forget()`](#cache-forget)
-* [`$cache->persist()`](#cache-persist)
-* [`$cache->cease()`](#cache-cease)
-* [`$cache->flush_group()`](#cache-flush_group)
-* [`$cache->flush()`](#cache-flush)
+Each container instance is scoped to a single prefix. Pass any non-empty string the first time you ask for it; the same
+prefix returns the same instance on subsequent calls:
 
-Each function checks the response of the callback for a `WP_Error` object, ensuring you're not caching temporary errors for long periods of time. PHP Exceptions will also not be cached.
+```php
+$cache = \DuckDev\Cache\Cache::get_instance( 'my_plugin' );
+```
 
-### $cache->remember()
+You can also instantiate directly (useful for tests where you want to inject custom drivers):
+
+```php
+$cache = new \DuckDev\Cache\Cache( 'my_plugin' );
+```
+
+Every key, group, and the `{prefix}_can_cache` toggle filter are namespaced under the supplied prefix.
+
+### Provided helpers
+
+| Method                                                              | Backed by               | Purpose                                                  |
+|---------------------------------------------------------------------|-------------------------|----------------------------------------------------------|
+| [`remember()`](#cache-remember)                                     | Object cache            | Read, or compute + cache on miss.                        |
+| [`forget()`](#cache-forget)                                         | Object cache            | Read then delete; return a default on miss.              |
+| [`persist()`](#cache-persist)                                       | Transients              | Read, or compute + cache on miss.                        |
+| [`cease()`](#cache-cease)                                           | Transients              | Read then delete; return a default on miss.              |
+| [`flush_group()`](#cache-flush_group)                               | Object cache            | Invalidate every entry in a group.                       |
+| [`flush()`](#cache-flush)                                           | Object cache            | Flush the entire object cache. **Last resort.**          |
+| `object_cache()` / `transient_cache()`                              | —                       | Access the underlying driver for finer-grained control.  |
+
+Every callback-based helper checks the return value with `is_wp_error()` and skips caching when one is returned, so a
+transient API failure is not memorised.
+
+### Disabling caching
+
+For debugging, return `false` from the `{prefix}_can_cache` filter:
+
+```php
+add_filter( 'my_plugin_can_cache', '__return_false' );
+```
+
+The second argument is the cache type — `'object'` or `'transient'` — so the two can be toggled independently.
+
+### `Cache::remember()` <a name="cache-remember"></a>
 
 Retrieve a value from the object cache. If it doesn't exist, run the `$callback` to generate and cache the value.
 
-#### Parameters
-
-<dl>
-    <dt>(string) $key</dt>
-    <dd>The cache key.</dd>
-    <dt>(callable) $callback</dt>
-    <dd>The callback used to generate and cache the value.</dd>
-    <dt>(string) $group</dt>
-    <dd>Optional. The cache group. Default is empty.</dd>
-    <dt>(int) $expire</dt>
-    <dd>Optional. The number of seconds before the cache entry should expire. Default is 0 (as long as possible).</dd>
-</dl>
-
-#### Example
-
 ```php
+$cache = \DuckDev\Cache\Cache::get_instance( 'my_plugin' );
+
 function get_latest_posts() {
+    global $cache;
+
     return $cache->remember( 'latest_posts', function () {
         return new WP_Query( array(
             'posts_per_page' => 5,
             'orderby'        => 'post_date',
             'order'          => 'desc',
         ) );
-    }, 'my-cache-group', HOUR_IN_SECONDS );
+    }, 'queries', HOUR_IN_SECONDS );
 }
 ```
 
-### $cache->forget()
+Unlike a naive `wp_cache_get()`-then-fall-back pattern, `remember()` distinguishes a legitimately cached `0`, `''`,
+`[]`, or `false` from a true miss — the callback only runs when nothing was cached.
 
-Retrieve and subsequently delete a value from the object cache.
+### `Cache::forget()` <a name="cache-forget"></a>
 
-#### Parameters
-
-<dl>
-    <dt>(string) $key</dt>
-    <dd>The cache key.</dd>
-    <dt>(string) $group</dt>
-    <dd>Optional. The cache group. Default is empty.</dd>
-    <dt>(mixed) $default</dt>
-    <dd>Optional. The default value to return if the given key doesn't exist in the object cache. Default is null.</dd>
-</dl>
-
-#### Example
+Retrieve a value from the object cache then delete it. Returns `$default` on miss.
 
 ```php
-function show_error_message() {
-    $error_message = $cache->forget( 'form_errors', 'my-cache-group', false );
+$error_message = $cache->forget( 'form_errors', 'flash', false );
 
-    if ( $error_message ) {
-        echo 'An error occurred: ' . $error_message;
-    }
+if ( $error_message ) {
+    echo 'An error occurred: ' . esc_html( $error_message );
 }
 ```
 
-### $cache->persist()
+### `Cache::persist()` <a name="cache-persist"></a>
 
-Retrieve a value from transients. If it doesn't exist, run the `$callback` to generate and cache the value.
-
-#### Parameters
-
-<dl>
-    <dt>(string) $key</dt>
-    <dd>The cache key.</dd>
-    <dt>(callable) $callback</dt>
-    <dd>The callback used to generate and cache the value.</dd>
-    <dt>(string) $site</dt>
-    <dd>Should use site transients.</dd>
-    <dt>(int) $expire</dt>
-    <dd>Optional. The number of seconds before the cache entry should expire. Default is 0 (as long as possible).</dd>
-</dl>
-
-#### Example
+Same shape as `remember()` but backed by the transient API.
 
 ```php
-function get_tweets() {
-    $user_id = get_current_user_id();
-    $key     = 'latest_tweets_' . $user_id;
-
-    return $cache->persist( $key, function () use ( $user_id ) {
-        return get_latest_tweets_for_user( $user_id );
-    }, 15 * MINUTE_IN_SECONDS );
-}
+$cache->persist( 'latest_tweets_' . $user_id, function () use ( $user_id ) {
+    return get_latest_tweets_for_user( $user_id );
+}, false, 15 * MINUTE_IN_SECONDS );
 ```
 
-### $cache->cease()
+Pass `true` for the third argument to use site-wide (multisite) transients.
 
-Retrieve and subsequently delete a value from the transient cache.
+Note: transients use boolean `false` as the miss sentinel, so a legitimately cached `false` value is indistinguishable
+from a miss. Reach for `remember()` if you need to cache `false`.
 
-#### Parameters
+### `Cache::cease()` <a name="cache-cease"></a>
 
-<dl>
-    <dt>(string) $key</dt>
-    <dd>The cache key.</dd>
-    <dt>(string) $site</dt>
-    <dd>Should use site transients.</dd>
-    <dt>(mixed) $default</dt>
-    <dd>Optional. The default value to return if the given key doesn't exist in transients. Default is null.</dd>
-</dl>
+Transient counterpart to `forget()`.
 
-### $cache->flush_group()
+### `Cache::flush_group()` <a name="cache-flush_group"></a>
 
-Flush a cache group items. Use this and do not flush entire cache.
+Invalidate every entry stored under a group, without touching the rest of the object cache. Internally this increments
+a per-group version sentinel — old entries become unreadable on next access.
 
-#### Parameters
+### `Cache::flush()` <a name="cache-flush"></a>
 
-<dl>
-    <dt>(string) $group</dt>
-    <dd>The cache group name.</dd>
-</dl>
+Wrapper for `wp_cache_flush()` with a fallback to `$wp_object_cache->flush()` when the function is disabled by a
+drop-in. **Clears every group on the site**, so use only as a last resort.
 
-### $cache->flush()
+## Upgrading from 1.x
 
-Wrapper for `wp_cache_flush` to check if other method is available for flushing if `wp_cache_flush` is disabled.
+* PHP minimum is now 7.4. PHP 5.6/7.0–7.3 are no longer supported.
+* The constructor now requires a prefix: `new Cache( 'my_plugin' )`. In 1.x the prefix was a hardcoded
+  `duckdev_cache` shared across every consumer.
+* The `can_cache` filter is now `{prefix}_can_cache` (e.g. `my_plugin_can_cache`) rather than the shared
+  `duckdev_cache_can_cache`.
+* `remember()` and `forget()` now correctly treat a cached `0` / `''` / `[]` / `false` as a hit instead of re-running
+  the callback.
+
+The public method surface (`remember`, `forget`, `persist`, `cease`, `flush_group`, `flush`) is otherwise unchanged.
+
+## Development
+
+```console
+composer install
+composer test     # PHPUnit
+composer phpcs    # WordPress Coding Standards
+```
 
 ### Credits
 * Maintained by [Joel James](https://github.com/joel-james/)

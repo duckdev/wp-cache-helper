@@ -1,20 +1,29 @@
 <?php
 /**
- * Cache helper class for WordPress object cache and transients.
+ * Cache helper container / library entry point.
  *
- * This class is a helper or wrapper for WordPress object cache and
- * transients. Using this class, you can clear a cache group instead
- * of flushing entire cache. For transients this class will help you
- * to prefix the keys.
+ * Single class consumers interact with directly. It wires up:
  *
- * @since      1.0.0
- * @author     Joel James <me@joelsays.com>
- * @license    http://www.gnu.org/licenses/old-licenses/gpl-2.0.html
- * @copyright  Copyright (c) 2020, Joel James
- * @link       https://github/duckdev/wp-cache-helper/
- * @package    Cache
- * @see        https://core.trac.wordpress.org/ticket/4476
- * @subpackage Cache
+ *   KeyPrefixer (prefix + group naming)
+ *     ├── ObjectCache   (wp_cache_* + version-based group flush)
+ *     └── TransientCache ((site_)transient wrapper)
+ *
+ * Construction has no side effects beyond holding references. The
+ * `remember()` / `forget()` / `persist()` / `cease()` helpers — the
+ * historical API — are thin convenience wrappers over the drivers;
+ * consumers wanting finer control can reach for {@see object_cache()}
+ * or {@see transient_cache()} directly.
+ *
+ * Each container instance is scoped to a single prefix. Two consumers
+ * sharing this library on the same site stay isolated because their
+ * keys, groups, and `{prefix}_can_cache` filter are all namespaced.
+ *
+ * @link    https://github.com/duckdev/wp-cache-helper
+ * @license http://www.gnu.org/licenses/old-licenses/gpl-2.0.html
+ * @author  Joel James <me@joelsays.com>
+ * @since   1.0.0
+ * @package Cache
+ * @see     https://core.trac.wordpress.org/ticket/4476
  */
 
 namespace DuckDev\Cache;
@@ -22,94 +31,133 @@ namespace DuckDev\Cache;
 // If this file is called directly, abort.
 defined( 'WPINC' ) || die;
 
+use DuckDev\Cache\Contracts\ObjectCacheInterface;
+use DuckDev\Cache\Contracts\TransientCacheInterface;
+use DuckDev\Cache\Storage\ObjectCache;
+use DuckDev\Cache\Storage\TransientCache;
+use DuckDev\Cache\Support\KeyPrefixer;
+
 /**
- * Class Cache
- *
- * @since   1.0.0
- * @package DuckDev\Cache
+ * Class Cache.
  */
 class Cache {
 
 	/**
-	 * The prefix for all our keys.
+	 * Object cache driver.
 	 *
-	 * @var string $prefix
-	 * @since 1.0.0
+	 * @since 2.0.0
+	 *
+	 * @var ObjectCacheInterface
 	 */
-	protected $prefix = 'duckdev_cache';
+	private ObjectCacheInterface $object_cache;
 
 	/**
-	 * Cache default group name.
+	 * Transient cache driver.
 	 *
-	 * @var string $group
-	 * @since 1.0.0
+	 * @since 2.0.0
+	 *
+	 * @var TransientCacheInterface
 	 */
-	protected $group = 'default';
+	private TransientCacheInterface $transient_cache;
 
 	/**
-	 * Cache version key.
+	 * Constructor.
 	 *
-	 * @var string $version_key
-	 * @since 1.0.0
+	 * Drivers default to the bundled WordPress-backed implementations.
+	 * Pass custom drivers (e.g. in-memory ones) to override — useful
+	 * for tests and for consumers that want to swap the storage layer.
+	 *
+	 * @since 2.0.0
+	 *
+	 * @param string                       $prefix          Non-empty prefix shared by every key and group.
+	 * @param ObjectCacheInterface|null    $object_cache    Optional. Object cache driver.
+	 * @param TransientCacheInterface|null $transient_cache Optional. Transient cache driver.
 	 */
-	protected $version_key = 'version';
+	public function __construct(
+		string $prefix,
+		?ObjectCacheInterface $object_cache = null,
+		?TransientCacheInterface $transient_cache = null
+	) {
+		$prefixer              = new KeyPrefixer( $prefix );
+		$this->object_cache    = $object_cache ?? new ObjectCache( $prefixer );
+		$this->transient_cache = $transient_cache ?? new TransientCache( $prefixer );
+	}
 
 	/**
-	 * Retrieve a value from the object cache.
+	 * Get (or create) the container for a given prefix.
 	 *
-	 * If it doesn't exist, run the $callback to generate and cache the value.
+	 * Subsequent calls with the same prefix return the same instance,
+	 * so consumers can grab the container from anywhere without
+	 * threading a reference through.
 	 *
-	 * @param string   $key      The cache key.
-	 * @param callable $callback The callback used to generate and cache the value.
-	 * @param string   $group    Optional. The cache group. Default is empty.
-	 * @param int      $expire   Optional. The number of seconds before the cache entry should expire.
-	 *                           Default is 0 (as long as possible).
+	 * @since 2.0.0
 	 *
-	 * @since  1.0.0
-	 * @access public
+	 * @param string $prefix Non-empty prefix.
 	 *
-	 * @return mixed The value returned from $callback, pulled from the cache when available.
+	 * @return self
 	 */
-	public function remember( $key, $callback, $group = '', $expire = 0 ) {
-		// Get from cache first.
-		$cached = $this->get_cache( $key, $group, false, $found );
+	public static function get_instance( string $prefix ): self {
+		static $instances = array();
 
-		// Found in cache.
-		if ( ! empty( $found ) ) {
+		if ( ! isset( $instances[ $prefix ] ) ) {
+			$instances[ $prefix ] = new self( $prefix );
+		}
+
+		return $instances[ $prefix ];
+	}
+
+	/**
+	 * Retrieve a value from the object cache, computing it on miss.
+	 *
+	 * Distinguishes a legitimately cached falsy value (`0`, `''`,
+	 * `[]`, `false`) from a true miss via the driver's `$found`
+	 * out-parameter — so the callback only runs when nothing was
+	 * cached.
+	 *
+	 * @since 1.0.0
+	 *
+	 * @param string   $key        Cache key.
+	 * @param callable $callback   Computes the value on a miss.
+	 * @param string   $group      Optional. Cache group. Default empty.
+	 * @param int      $expiration Optional. Expiration in seconds. Default 0.
+	 *
+	 * @return mixed Cached value, or the callback's return value.
+	 */
+	public function remember( string $key, callable $callback, string $group = '', int $expiration = 0 ) {
+		$found  = false;
+		$cached = $this->object_cache->get( $key, $group, $found );
+
+		if ( $found ) {
 			return $cached;
 		}
 
-		// Or run the callback and get value.
 		$value = $callback();
 
-		// Save to cache.
-		if ( ! is_wp_error( $value ) ) {
-			$this->set_cache( $key, $value, $group, $expire );
+		// Don't cache transient errors.
+		if ( ! ( function_exists( 'is_wp_error' ) && is_wp_error( $value ) ) ) {
+			$this->object_cache->set( $key, $value, $group, $expiration );
 		}
 
 		return $value;
 	}
 
 	/**
-	 * Retrieve and subsequently delete a value from the object cache.
+	 * Retrieve and delete a value from the object cache.
 	 *
-	 * @param string $key     The cache key.
-	 * @param string $group   Optional. The cache group. Default is empty.
-	 * @param mixed  $default Optional. The default value to return if the given key doesn't
-	 *                        exist in the object cache. Default is null.
+	 * @since 1.0.0
 	 *
-	 * @since  1.0.0
-	 * @access public
+	 * @param string $key     Cache key.
+	 * @param string $group   Optional. Cache group. Default empty.
+	 * @param mixed  $default Optional. Returned on miss. Default null.
 	 *
-	 * @return mixed The cached value, when available, or $default.
+	 * @return mixed Cached value, or $default.
 	 */
-	public function forget( $key, $group = '', $default = null ) {
-		// Get from cache.
-		$cached = $this->get_cache( $key, $group, false, $found );
+	public function forget( string $key, string $group = '', $default = null ) {
+		$found  = false;
+		$cached = $this->object_cache->get( $key, $group, $found );
 
-		if ( ! empty( $found ) ) {
-			// Delete from cache if found.
-			$this->delete_cache( $key, $group );
+		if ( $found ) {
+			$this->object_cache->delete( $key, $group );
 
 			return $cached;
 		}
@@ -118,60 +166,54 @@ class Cache {
 	}
 
 	/**
-	 * Retrieve a value from persistent cache (transients).
+	 * Retrieve a transient value, computing it on miss.
 	 *
-	 * If it doesn't exist, run the $callback to generate and cache the value.
+	 * Note: transients can't represent a legitimately cached boolean
+	 * `false` — that's a WordPress limitation, not something this
+	 * library can paper over. Callers that need to cache `false`
+	 * should use the object cache instead.
 	 *
-	 * @param string   $key      The transient key.
-	 * @param callable $callback The callback used to generate and cache the value.
-	 * @param bool     $site     Should use site transients.
-	 * @param int      $expire   Optional. The number of seconds before the cache entry should expire.
-	 *                           Default is 0 (as long as possible).
+	 * @since 1.0.0
 	 *
-	 * @since  1.0.0
-	 * @access public
+	 * @param string   $key        Transient key.
+	 * @param callable $callback   Computes the value on a miss.
+	 * @param bool     $site       Whether to use site transients.
+	 * @param int      $expiration Optional. Expiration in seconds. Default 0.
 	 *
-	 * @return mixed The value returned from $callback, pulled from transients when available.
+	 * @return mixed Cached value, or the callback's return value.
 	 */
-	public function persist( $key, $callback, $site = false, $expire = 0 ) {
-		// Get transient.
-		$cached = $this->get_transient( $key, $site );
+	public function persist( string $key, callable $callback, bool $site = false, int $expiration = 0 ) {
+		$cached = $this->transient_cache->get( $key, $site );
 
 		if ( false !== $cached ) {
 			return $cached;
 		}
 
-		// If not found, call function.
 		$value = $callback();
 
-		if ( ! is_wp_error( $value ) ) {
-			// Store to transients.
-			$this->set_transient( $key, $value, $site, $expire );
+		if ( ! ( function_exists( 'is_wp_error' ) && is_wp_error( $value ) ) ) {
+			$this->transient_cache->set( $key, $value, $site, $expiration );
 		}
 
 		return $value;
 	}
 
 	/**
-	 * Retrieve and subsequently delete a value from the transient cache.
+	 * Retrieve and delete a transient value.
 	 *
-	 * @param string $key     The transient key.
-	 * @param bool   $site    Should use site transients.
-	 * @param mixed  $default Optional. The default value to return if the given key doesn't
-	 *                        exist in transients. Default is null.
+	 * @since 1.0.0
 	 *
-	 * @since  1.0.0
-	 * @access public
+	 * @param string $key     Transient key.
+	 * @param bool   $site    Whether to use site transients.
+	 * @param mixed  $default Optional. Returned on miss. Default null.
 	 *
-	 * @return mixed The cached value, when available, or $default.
+	 * @return mixed Cached value, or $default.
 	 */
-	public function cease( $key, $site = false, $default = null ) {
-		// Get from transient.
-		$cached = $this->get_transient( $key, $site );
+	public function cease( string $key, bool $site = false, $default = null ) {
+		$cached = $this->transient_cache->get( $key, $site );
 
 		if ( false !== $cached ) {
-			// Delete if found.
-			$this->delete_transient( $key, $site );
+			$this->transient_cache->delete( $key, $site );
 
 			return $cached;
 		}
@@ -180,298 +222,51 @@ class Cache {
 	}
 
 	/**
-	 * Flush all items in a group object cache.
+	 * Flush every item stored in a group.
 	 *
-	 * We can not delete the cache by group. So we are using a version
-	 * number to track the cache items.
+	 * @since 1.0.0
 	 *
 	 * @param string $group Group name.
 	 *
-	 * @since  1.0.0
-	 * @access public
-	 *
 	 * @return bool
 	 */
-	public function flush_group( $group ) {
-		// Increment the version to invalidate group.
-		return wp_cache_incr( $this->key( $this->version_key ), 1, $group );
-	}
-
-	/**
-	 * Wrapper for wp_cache_get function to use group.
-	 *
-	 * Use this to get the cache values set using set_cache method but
-	 * have the ability to flush by group.
-	 *
-	 * @param int|string $key       The key under which the cache contents are stored.
-	 * @param string     $group     Optional. Where the cache contents are grouped.
-	 * @param bool       $force     Optional. Whether to force an update of the local
-	 *                              cache from the persistent cache. Default false.
-	 * @param bool       $found     Optional. Whether the key was found in the cache (passed by reference).
-	 *                              Disambiguate a return of false, a storable value. Default null.
-	 *
-	 * @since  1.0.0
-	 * @access public
-	 *
-	 * @return bool|mixed False on failure to retrieve contents or the cache
-	 *                      contents on success
-	 */
-	public function get_cache( $key, $group = '', $force = false, &$found = null ) {
-		// Check if caching disabled.
-		if ( ! $this->can_cache() ) {
-			$found = false;
-
-			return false;
-		}
-
-		// Set group name.
-		$group = $this->get_group( $group );
-
-		// Get the current cache version.
-		$version = wp_cache_get( $this->key( $this->version_key ), $group );
-
-		// Continue if version is not set.
-		if ( ! empty( $version ) ) {
-			// Get the cache value.
-			$data = wp_cache_get( $this->key( $key ), $group, $force, $found );
-
-			// Return only data.
-			if ( isset( $data['version'] ) && $version === $data['version'] && ! empty( $data['data'] ) ) {
-				return $data['data'];
-			} elseif ( isset( $data['version'] ) && $version !== $data['version'] ) {
-				// Invalid version.
-				$found = false;
-			}
-		}
-
-		return false;
-	}
-
-	/**
-	 * Wrapper for wp_cache_set to use group.
-	 *
-	 * Set cache using this method so that we can delete them without
-	 * flushing the object cache as whole. This cache can be deleted
-	 * using normal wp_cache_delete also.
-	 *
-	 * @param int|string $key       The cache key to use for retrieval later.
-	 * @param mixed      $data      The contents to store in the cache.
-	 * @param string     $group     Optional. Where to group the cache contents.
-	 *                              Enables the same key to be used across groups.
-	 * @param int        $expire    Optional. When to expire the cache contents, in seconds.
-	 *                              Default 0 (no expiration).
-	 *
-	 * @since  1.0.0
-	 * @access public
-	 *
-	 * @return bool False on failure, true on success.
-	 */
-	public function set_cache( $key, $data, $group = '', $expire = 0 ) {
-		// Check if caching disabled.
-		if ( ! $this->can_cache() ) {
-			return false;
-		}
-
-		// Set group.
-		$group = $this->get_group( $group );
-
-		// Get the current version.
-		$version = wp_cache_get( $this->key( $this->version_key ), $group );
-
-		// In case version is not set, set now.
-		if ( empty( $version ) ) {
-			// In case version is not set, use default 1.
-			$version = 1;
-
-			// Set cache version.
-			wp_cache_set( $this->key( $this->version_key ), $version, $group );
-		}
-
-		// Add to cache array with version.
-		$data = array(
-			'data'    => $data,
-			'version' => $version,
-		);
-
-		// Set to WP cache.
-		return wp_cache_set( $this->key( $key ), $data, $group, $expire );
-	}
-
-	/**
-	 * Wrapper for get_site_transient and get_transient.
-	 *
-	 * Use this to get transients with our cache key prefixes.
-	 *
-	 * @param int|string $key  The transient key.
-	 * @param bool       $site Should use site transients.
-	 *
-	 * @since  1.0.0
-	 * @access public
-	 *
-	 * @return mixed Value of transient.
-	 */
-	public function get_transient( $key, $site = false ) {
-		// Check if caching disabled.
-		if ( ! $this->can_cache( 'transient' ) ) {
-			return false;
-		}
-
-		// Prefix key.
-		$key = $this->key( $key );
-
-		return $site ? get_site_transient( $key ) : get_transient( $key );
-	}
-
-	/**
-	 * Wrapper for set_site_transient and set_transient.
-	 *
-	 * Use this to set transients with our cache key prefixes.
-	 *
-	 * @param int|string $key    The transient key.
-	 * @param mixed      $value  Value to store.
-	 * @param bool       $site   Should use site transients.
-	 * @param int        $expire Optional. Time until expiration in seconds. Default 0 (no expiration).
-	 *
-	 * @since  1.0.0
-	 * @access public
-	 *
-	 * @return bool True if the value was set, false otherwise.
-	 */
-	public function set_transient( $key, $value, $site = false, $expire = 0 ) {
-		// Check if caching disabled.
-		if ( ! $this->can_cache( 'transient' ) ) {
-			return false;
-		}
-
-		// Prefix key.
-		$key = $this->key( $key );
-
-		// Set transient.
-		return $site ? set_site_transient( $key, $value, $expire ) : set_transient( $key, $value, $expire );
-	}
-
-	/**
-	 * Wrapper for wp_cache_delete to use prefix.
-	 *
-	 * Always use this wrapper to delete cache set by our class.
-	 * Otherwise, you will have to manually prefix all your keys.
-	 *
-	 * @param int|string $key       The cache key to use for retrieval later.
-	 * @param string     $group     Optional. Where to group the cache contents.
-	 *                              Enables the same key to be used across groups.
-	 *
-	 * @since  1.0.0
-	 * @access public
-	 *
-	 * @return bool True on successful removal, false on failure.
-	 */
-	public function delete_cache( $key, $group = '' ) {
-		// Delete the cache.
-		return wp_cache_delete( $this->key( $key ), $this->get_group( $group ) );
-	}
-
-	/**
-	 * Wrapper for delete_site_transient and delete_transient.
-	 *
-	 * Always use this wrapper to delete transients set by our class.
-	 * Otherwise, you will have to manually prefix all your keys.
-	 *
-	 * @param int|string $key  The transient key.
-	 * @param bool       $site Should use site transients.
-	 *
-	 * @since  1.0.0
-	 * @access public
-	 *
-	 * @return bool True if the transient was deleted, false otherwise.
-	 */
-	public function delete_transient( $key, $site = false ) {
-		$key = $this->key( $key );
-
-		return $site ? delete_site_transient( $key ) : delete_transient( $key );
+	public function flush_group( string $group ): bool {
+		return $this->object_cache->flush_group( $group );
 	}
 
 	/**
 	 * Flush the entire object cache.
 	 *
-	 * WARNING: Use this only when absolutely necessary.
-	 * This is here because object cache flushes can be prevented.
-	 * If in case wp_cache_flush function is disabled we will try
-	 * to flush it directly.
+	 * WARNING: clears every group, including those owned by other
+	 * consumers. Use only when absolutely necessary.
 	 *
-	 * @since  1.0.0
-	 * @access public
+	 * @since 1.0.0
 	 *
 	 * @return void
 	 */
-	public function flush() {
-		global $wp_object_cache;
-
-		// In some cases.
-		if ( is_object( $wp_object_cache ) && is_callable( array( $wp_object_cache, 'flush' ) ) ) {
-			$wp_object_cache->flush();
-		} elseif ( is_callable( 'wp_cache_flush' ) ) {
-			wp_cache_flush();
-		}
+	public function flush(): void {
+		$this->object_cache->flush();
 	}
 
 	/**
-	 * Get group name for cache item.
+	 * Access the underlying object cache driver.
 	 *
-	 * We will always store object cache under a group so that
-	 * we can easily clear our own caches at once.
-	 * Group names will always be prefixed.
+	 * @since 2.0.0
 	 *
-	 * @param string $group Cache group name.
-	 *
-	 * @since  1.0.0
-	 * @access protected
-	 *
-	 * @return string
+	 * @return ObjectCacheInterface
 	 */
-	protected function get_group( $group ) {
-		$group = empty( $group ) ? 'default' : $group;
-
-		return $this->key( $group );
+	public function object_cache(): ObjectCacheInterface {
+		return $this->object_cache;
 	}
 
 	/**
-	 * Get key with our prefix.
+	 * Access the underlying transient cache driver.
 	 *
-	 * Always use this to generate keys.
+	 * @since 2.0.0
 	 *
-	 * @param string $name Key name.
-	 *
-	 * @since  1.0.0
-	 * @access protected
-	 *
-	 * @return string
+	 * @return TransientCacheInterface
 	 */
-	protected function key( $name ) {
-		return "{$this->prefix}_{$name}";
-	}
-
-	/**
-	 * Check if we can cache the objects.
-	 *
-	 * Use the filter to disable cache/transients for debugging
-	 * purpose.
-	 *
-	 * @param string $type Cache type (object or transients).
-	 *
-	 * @since  1.0.0
-	 * @access protected
-	 *
-	 * @return bool $enable
-	 */
-	protected function can_cache( $type = 'object' ) {
-		/**
-		 * Make caching enabled status filterable.
-		 *
-		 * @param bool   $can_cache Is cache enabled.
-		 * @param string $type      Cache type (object or transients).
-		 *
-		 * @since 1.0.0
-		 */
-		return apply_filters( "{$this->prefix}_can_cache", true, $type );
+	public function transient_cache(): TransientCacheInterface {
+		return $this->transient_cache;
 	}
 }
