@@ -1,6 +1,6 @@
 {
   "name": "duckdev/wp-cache-helper",
-  "version": "2.0.0",
+  "version": "2.0.1",
   "type": "library",
   "description": "Helper library for the WordPress object cache and transients with group flush support, per-prefix scoping, and a swappable driver layer.",
   "keywords": [

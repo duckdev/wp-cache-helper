@@ -41,7 +41,7 @@ interface ObjectCacheInterface {
 	 *
 	 * @return mixed Cached value, or false on miss / when caching is disabled.
 	 */
-	public function get( string $key, string $group = '', bool &$found = null );
+	public function get( string $key, string $group = '', ?bool &$found = null );
 
 	/**
 	 * Persist a value in the object cache.

@@ -70,7 +70,7 @@ class ObjectCache implements ObjectCacheInterface {
 	 *
 	 * @since 2.0.0
 	 */
-	public function get( string $key, string $group = '', bool &$found = null ) {
+	public function get( string $key, string $group = '', ?bool &$found = null ) {
 		$found = false;
 
 		if ( ! $this->can_cache() ) {
