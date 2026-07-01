@@ -12,6 +12,8 @@ and per-prefix scoping so multiple consumers on the same site never collide.
 
 Inspired by [WP Cache Remember](https://github.com/stevegrunwell/wp-cache-remember).
 
+📖 **Full documentation:** [docs.duckdev.com/wp-libraries/wp-cache-helper](https://docs.duckdev.com/wp-libraries/wp-cache-helper)
+
 ## Requirements
 
 * PHP 7.4 or higher
