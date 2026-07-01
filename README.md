@@ -13,7 +13,7 @@ scoping so multiple consumers on the same site never collide.
 
 Inspired by [WP Cache Remember](https://github.com/stevegrunwell/wp-cache-remember).
 
-📖 **Full documentation:** [docs.duckdev.com/wp-libraries/wp-cache-helper](https://docs.duckdev.com/wp-libraries/wp-cache-helper)
+📖 **Full documentation:** [docs.duckdev.com/wp-libraries/wp-cache-helper/overview](https://docs.duckdev.com/wp-libraries/wp-cache-helper/overview)
 
 ## Requirements
 
