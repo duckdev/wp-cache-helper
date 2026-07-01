@@ -57,7 +57,7 @@ class ObjectCache implements ObjectCacheInterface {
 	/**
 	 * Cached result of the native group-flush capability check.
 	 *
-	 * @since 2.0.1
+	 * @since 2.0.2
 	 *
 	 * @var bool|null
 	 */
@@ -163,7 +163,7 @@ class ObjectCache implements ObjectCacheInterface {
 	 * {@see wp_cache_get()} can be tested via a subclass override
 	 * without fighting Brain\Monkey's inability to relay references.
 	 *
-	 * @since 2.0.1
+	 * @since 2.0.2
 	 *
 	 * @param string $key       Already-prefixed key.
 	 * @param string $group_key Already-prefixed group key.
@@ -180,7 +180,7 @@ class ObjectCache implements ObjectCacheInterface {
 	/**
 	 * Native-backend read path.
 	 *
-	 * @since 2.0.1
+	 * @since 2.0.2
 	 *
 	 * @param string $prefixed_key Already-prefixed key.
 	 * @param string $group_key    Already-prefixed group key.
@@ -204,7 +204,7 @@ class ObjectCache implements ObjectCacheInterface {
 	/**
 	 * Version-sentinel fallback read path.
 	 *
-	 * @since 2.0.1
+	 * @since 2.0.2
 	 *
 	 * @param string $prefixed_key Already-prefixed key.
 	 * @param string $group_key    Already-prefixed group key.
@@ -235,7 +235,7 @@ class ObjectCache implements ObjectCacheInterface {
 	/**
 	 * Version-sentinel fallback write path.
 	 *
-	 * @since 2.0.1
+	 * @since 2.0.2
 	 *
 	 * @param string $prefixed_key Already-prefixed key.
 	 * @param mixed  $value        Value to store.
@@ -253,7 +253,7 @@ class ObjectCache implements ObjectCacheInterface {
 	/**
 	 * Version-sentinel fallback flush path.
 	 *
-	 * @since 2.0.1
+	 * @since 2.0.2
 	 *
 	 * @param string $group_key Already-prefixed group key.
 	 *
@@ -274,7 +274,7 @@ class ObjectCache implements ObjectCacheInterface {
 	 * Cached per instance — a mid-request drop-in swap is not a scenario
 	 * we care about.
 	 *
-	 * @since 2.0.1
+	 * @since 2.0.2
 	 *
 	 * @return bool
 	 */
@@ -304,7 +304,7 @@ class ObjectCache implements ObjectCacheInterface {
 	/**
 	 * Return the current version, seeding it to 1 when missing.
 	 *
-	 * @since 2.0.1
+	 * @since 2.0.2
 	 *
 	 * @param string $group_key Already-prefixed group key.
 	 *
@@ -325,7 +325,7 @@ class ObjectCache implements ObjectCacheInterface {
 	/**
 	 * Return prefixed (key, group_key) for the given raw pair.
 	 *
-	 * @since 2.0.1
+	 * @since 2.0.2
 	 *
 	 * @param string $key   Raw key.
 	 * @param string $group Raw group.
@@ -339,7 +339,7 @@ class ObjectCache implements ObjectCacheInterface {
 	/**
 	 * Prefixed key that holds the version sentinel.
 	 *
-	 * @since 2.0.1
+	 * @since 2.0.2
 	 *
 	 * @return string
 	 */
@@ -350,7 +350,7 @@ class ObjectCache implements ObjectCacheInterface {
 	/**
 	 * Wrap a value in a version-stamped envelope.
 	 *
-	 * @since 2.0.1
+	 * @since 2.0.2
 	 *
 	 * @param mixed $value   Value to store.
 	 * @param int   $version Current group version.
@@ -367,7 +367,7 @@ class ObjectCache implements ObjectCacheInterface {
 	/**
 	 * Whether the given value looks like a fallback-path envelope.
 	 *
-	 * @since 2.0.1
+	 * @since 2.0.2
 	 *
 	 * @param mixed $value Value to check.
 	 *
