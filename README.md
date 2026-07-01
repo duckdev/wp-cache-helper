@@ -7,8 +7,9 @@
 # WP Cache Helper
 
 WP Cache Helper is a small WordPress library that wraps the object cache and transient APIs with a callback-style
-`remember()` helper, group-flush support for the object cache (which [core does not provide](https://core.trac.wordpress.org/ticket/4476)),
-and per-prefix scoping so multiple consumers on the same site never collide.
+`remember()` helper, group-flush support for the object cache (delegating to core's `wp_cache_flush_group()` on
+WP 6.1+ backends that support it, with a version-sentinel fallback for backends that don't), and per-prefix
+scoping so multiple consumers on the same site never collide.
 
 Inspired by [WP Cache Remember](https://github.com/stevegrunwell/wp-cache-remember).
 
@@ -17,7 +18,7 @@ Inspired by [WP Cache Remember](https://github.com/stevegrunwell/wp-cache-rememb
 ## Requirements
 
 * PHP 7.4 or higher
-* WordPress 5.0+
+* WordPress 6.1+
 * Composer
 
 ## Installation
@@ -151,8 +152,10 @@ Transient counterpart to `forget()`.
 
 ### `Cache::flush_group()` <a name="cache-flush_group"></a>
 
-Invalidate every entry stored under a group, without touching the rest of the object cache. Internally this increments
-a per-group version sentinel — old entries become unreadable on next access.
+Invalidate every entry stored under a group, without touching the rest of the object cache. On WP 6.1+ with a
+persistent object cache backend that advertises `flush_group` support (via `wp_cache_supports( 'flush_group' )`),
+this delegates straight to `wp_cache_flush_group()`. Otherwise it falls back to incrementing a per-group version
+sentinel — old entries become unreadable on next access.
 
 ### `Cache::flush()` <a name="cache-flush"></a>
 

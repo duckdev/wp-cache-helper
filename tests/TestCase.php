@@ -31,6 +31,10 @@ abstract class TestCase extends BaseTestCase {
 				return $value;
 			}
 		);
+
+		// Default: backend does not support native group flush. Individual
+		// tests can override with Functions\expect() / Functions\when().
+		Functions\when( 'wp_cache_supports' )->justReturn( false );
 	}
 
 	protected function tearDown(): void {
